@@ -138,6 +138,9 @@ public abstract class MongoDatabaseMetaData implements DatabaseMetaData {
     }
 
     public static Pattern toJavaPattern(String sqlPattern) {
+        if (sqlPattern == null) {
+            sqlPattern="%";
+        }
         return Pattern.compile(sqlPattern.replaceAll("%", ".*").replaceAll("_", "."));
     }
 

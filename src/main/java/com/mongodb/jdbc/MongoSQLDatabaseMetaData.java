@@ -268,7 +268,8 @@ public class MongoSQLDatabaseMetaData extends MongoDatabaseMetaData implements D
                 new BsonElement(TABLE_CAT, new BsonString(dbName)),
                 new BsonElement(TABLE_SCHEM, BsonNull.VALUE),
                 new BsonElement(TABLE_NAME, new BsonString(res.name)),
-                new BsonElement(TABLE_TYPE, new BsonString(res.type)),
+                // new BsonElement(TABLE_TYPE, new BsonString(res.type)),
+                new BsonElement(TABLE_TYPE, new BsonString("TABLE")),
                 new BsonElement(REMARKS, BsonNull.VALUE),
                 new BsonElement(TYPE_CAT, BsonNull.VALUE),
                 new BsonElement(TYPE_SCHEM, BsonNull.VALUE),
@@ -343,6 +344,10 @@ public class MongoSQLDatabaseMetaData extends MongoDatabaseMetaData implements D
         // schemaPattern argument.
         Pattern tableNamePatternRE = toJavaPattern(tableNamePattern);
         List<String> typesList = toTableTypeList(types);
+
+        ArrayList<String> stringList = new ArrayList<String>(Arrays.asList(types));
+        stringList.add("COLLECTION");
+        types = stringList.toArray(new String[0]);
 
         Stream<BsonDocument> docs;
         if (catalog == null) {
