@@ -416,29 +416,36 @@ public class MongoDatabaseMetaData implements DatabaseMetaData {
 
     // Helper for getting a list of collection names from the db
     // Using runCommand instead of listCollections as listCollections does not support authorizedCollections option
-    private ArrayList<Document> getCollectionsFromRunCommand(MongoDatabase db) {
-        Document listCollectionsResult =
+    private ArrayList<MongoListTablesResult> getCollectionsFromRunCommand(MongoDatabase db) {
+        MongoRunCmdListTablesResult mongoRunCmdListTablesResult =
                 db.runCommand(
                         new Document("listCollections", 1)
                                 .append("authorizedCollections", true)
-                                .append("nameOnly", true));
-        ArrayList<Document> firstBatch =
-                (ArrayList<Document>)
-                        listCollectionsResult
-                                .get("cursor", Document.class)
-                                .getList("firstBatch", Document.class);
+                                .append("nameOnly", true),
+                        MongoRunCmdListTablesResult.class);
 
-        return firstBatch;
+        ArrayList<MongoListTablesResult> listTablesResults =
+                mongoRunCmdListTablesResult.getCursor().getFirstBatch();
+        long cursorId = mongoRunCmdListTablesResult.getCursor().getId();
+        String ns = mongoRunCmdListTablesResult.getCursor().getNs();
+        while (cursorId != 0) {
+            MongoGetMoreResult getMoreResult =
+                    db.runCommand(
+                            new Document("getMore", cursorId).append("collection", ns),
+                            MongoGetMoreResult.class);
+            listTablesResults.addAll(getMoreResult.getBatch());
+            cursorId = getMoreResult.getId();
+            ns = getMoreResult.getNs();
+        }
+        return listTablesResults;
     }
 
     // Helper for getting a stream of MongoListCollectionsResults from the argued db that match
     // the argued filter.
     private Stream<MongoListTablesResult> getTableDataFromDB(
             String dbName, Function<MongoListTablesResult, Boolean> filter) {
-        return getCollectionsFromRunCommand(this.conn.getDatabase(dbName))
-                .stream()
-                .map(MongoListTablesResult::new)
-                .filter(filter::apply);
+        MongoDatabase db = this.conn.getDatabase(dbName).withCodecRegistry(MongoDriver.registry);
+        return getCollectionsFromRunCommand(db).stream().filter(filter::apply);
     }
 
     // Helper for creating BSON documents for the getTables method. Intended for use
@@ -1541,10 +1548,10 @@ public class MongoDatabaseMetaData implements DatabaseMetaData {
             Pattern tableNamePatternRE,
             Pattern columnNamePatternRE,
             Function<GetColumnsDocInfo, BsonDocument> bsonSerializer) {
-        MongoDatabase db = this.conn.getDatabase(dbName);
+        MongoDatabase db = this.conn.getDatabase(dbName).withCodecRegistry(MongoDriver.registry);
         return getCollectionsFromRunCommand(db)
                 .stream()
-                .map(collection -> collection.get("name", String.class))
+                .map(collection -> collection.name)
                 .collect(Collectors.toList())
                 .stream()
 
@@ -1559,12 +1566,10 @@ public class MongoDatabaseMetaData implements DatabaseMetaData {
                         tableName ->
                                 new Pair<>(
                                         new Pair<>(dbName, tableName),
-                                        db.withCodecRegistry(MongoDriver.registry)
-                                                .runCommand(
-                                                        new BsonDocument(
-                                                                "sqlGetSchema",
-                                                                new BsonString(tableName)),
-                                                        MongoJsonSchemaResult.class)))
+                                        db.runCommand(
+                                                new BsonDocument(
+                                                        "sqlGetSchema", new BsonString(tableName)),
+                                                MongoJsonSchemaResult.class)))
 
                 // filter only for collections that have schemas
                 .filter(p -> isValidSchema(p.right()))

@@ -1,5 +1,5 @@
 /*
- * Copyright 2022-present MongoDB, Inc.
+ * Copyright 2023-present MongoDB, Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,16 +16,20 @@
 
 package com.mongodb.jdbc;
 
-public class MongoListTablesResult {
-    public static final String TABLE = "table";
-    public static final String COLLECTION = "collection";
+import java.util.ArrayList;
 
-    public String name;
-    public String type;
+public class MongoGetMoreResult {
+    public long id;
+    public String ns;
+    public ArrayList<MongoListTablesResult> batch;
 
-    public void setType(String type) {
-        // If mongodb type is COLLECTION, map it as TABLE.
-        // Otherwise, keep the type as is.
-        this.type = type.equalsIgnoreCase(COLLECTION) ? TABLE : type;
+    public ArrayList<MongoListTablesResult> getBatch() {
+        return batch;
+    }
+    public String getNs() {
+        return ns;
+    }
+    public long getId() {
+        return id;
     }
 }
