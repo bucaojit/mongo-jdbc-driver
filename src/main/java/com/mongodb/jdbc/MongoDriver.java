@@ -158,6 +158,13 @@ public class MongoDriver implements Driver {
     private static final String MONGOSQL_TRANSLATE_NAME = "mongosqltranslate";
     protected static final String MONGOSQL_TRANSLATE_PATH = "MONGOSQL_TRANSLATE_PATH";
 
+//    static {
+//        System.setProperty("java.security.auth.login.config", "/etc/gss-jaas.conf");
+//        System.setProperty("java.security.krb5.conf", "/etc/krb5.conf");
+//        System.setProperty("javax.security.auth.useSubjectCredsOnly", "false");
+//        System.setProperty("sun.security.krb5.debug", "true");
+//    }
+
     public static final CodecRegistry REGISTRY =
             fromProviders(
                     new BsonValueCodecProvider(),
@@ -240,6 +247,8 @@ public class MongoDriver implements Driver {
         // driver library and load the MongoSQL Translate library from a different location.
         // Intended primarily for development and testing purposes.
         String envPath = System.getenv(MONGOSQL_TRANSLATE_PATH);
+        System.out.println("MONGOSQL_TRANSLATE_PATH");
+        System.out.println(envPath);
         if (envPath != null && !envPath.isEmpty()) {
             String absolutePath = Paths.get(envPath).toAbsolutePath().normalize().toString();
             try {

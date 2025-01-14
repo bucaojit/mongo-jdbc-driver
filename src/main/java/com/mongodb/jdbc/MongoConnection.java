@@ -20,14 +20,9 @@ import static com.mongodb.AuthenticationMechanism.MONGODB_OIDC;
 import static com.mongodb.AuthenticationMechanism.MONGODB_X509;
 
 import com.google.common.base.Preconditions;
-import com.mongodb.AuthenticationMechanism;
-import com.mongodb.MongoClientSettings;
-import com.mongodb.MongoCredential;
+import com.mongodb.*;
 import com.mongodb.MongoCredential.OidcCallback;
-import com.mongodb.MongoDriverInformation;
-import com.mongodb.client.MongoClient;
-import com.mongodb.client.MongoClients;
-import com.mongodb.client.MongoDatabase;
+import com.mongodb.client.*;
 import com.mongodb.jdbc.logging.AutoLoggable;
 import com.mongodb.jdbc.logging.DisableAutoLogging;
 import com.mongodb.jdbc.logging.MongoLogger;
@@ -35,20 +30,20 @@ import com.mongodb.jdbc.logging.MongoSimpleFormatter;
 import com.mongodb.jdbc.mongosql.MongoSQLException;
 import com.mongodb.jdbc.mongosql.MongoSQLTranslate;
 import com.mongodb.jdbc.oidc.JdbcOidcCallback;
-import com.mongodb.jdbc.utils.X509Authentication;
 import java.io.File;
 import java.io.IOException;
 import java.sql.*;
-import java.util.Arrays;
-import java.util.HashMap;
-import java.util.Map;
-import java.util.Properties;
+import java.util.*;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.logging.*;
+import javax.security.auth.login.LoginContext;
+import javax.security.auth.login.LoginException;
 import org.bson.BsonDocument;
 import org.bson.BsonInt32;
+import org.bson.Document;
 import org.bson.UuidRepresentation;
+import org.ietf.jgss.*;
 
 @AutoLoggable
 public class MongoConnection implements Connection {
@@ -76,6 +71,7 @@ public class MongoConnection implements Connection {
     private int serverMajorVersion;
     private int serverMinorVersion;
     private String serverVersion;
+    private GSSContext gssContext;
 
     public static final String MONGODB_JDBC_X509_CLIENT_CERT_PATH =
             "MONGODB_JDBC_X509_CLIENT_CERT_PATH";
@@ -127,6 +123,11 @@ public class MongoConnection implements Connection {
         } else {
             this.mongoClient = mongoClient;
         }
+        try {
+            testDatabaseAccess();
+        } catch (Exception e) {
+
+        }
     }
 
     public MongoConnection(
@@ -170,8 +171,32 @@ public class MongoConnection implements Connection {
         return appNameBuilder.toString();
     }
 
+    protected void testDatabaseAccess() throws SQLException {
+        try {
+            MongoDatabase db = mongoClient.getDatabase("kerberos");
+            MongoCollection<Document> collection = db.getCollection("test");
+            FindIterable<Document> result = collection.find();
+
+            Document firstDoc = result.first();
+
+            if (firstDoc != null) {
+                logger.log(
+                        Level.INFO,
+                        "Successfully accessed database. First document: " + firstDoc.toJson());
+            } else {
+                logger.log(
+                        Level.INFO, "Successfully connected to collection but no documents found");
+            }
+
+        } catch (MongoException e) {
+            logger.log(Level.SEVERE, "Failed to access database", e);
+            throw new SQLException("Database access test failed: " + e.getMessage(), e);
+        }
+    }
+
     private MongoClientSettings createMongoClientSettings(
             MongoConnectionProperties connectionProperties) {
+
         MongoClientSettings.Builder settingsBuilder =
                 MongoClientSettings.builder()
                         .applicationName(this.appName)
@@ -182,7 +207,50 @@ public class MongoConnection implements Connection {
         if (credential != null) {
             AuthenticationMechanism authMechanism = credential.getAuthenticationMechanism();
 
-            if (authMechanism != null && authMechanism.equals(MONGODB_OIDC)) {
+            // See where Tableau is getting config file jaas
+            System.out.println(
+                    "Login config path: " + System.getProperty("java.security.auth.login.config"));
+
+            if (authMechanism != null && authMechanism.equals(AuthenticationMechanism.GSSAPI)) {
+                logger.log(Level.INFO, "in gssapi");
+
+                Map<String, Object> saslProperties = new HashMap<>();
+                saslProperties.put(javax.security.sasl.Sasl.MAX_BUFFER, "0");
+                saslProperties.put(javax.security.sasl.Sasl.SERVER_AUTH, "true");
+                saslProperties.put(javax.security.sasl.Sasl.QOP, "auth");
+                if (this.gssContext != null) {
+                    try {
+                        saslProperties.put(
+                                javax.security.sasl.Sasl.CREDENTIALS,
+                                this.gssContext.getDelegCred());
+                    } catch (GSSException e) {
+                        logger.log(Level.SEVERE, "Failed to get credentials from GSS context", e);
+                    }
+                }
+
+                try {
+                    LoginContext loginContext = new LoginContext("com.sun.security.jgss.initiate");
+                    loginContext.login();
+                    logger.log(Level.INFO, "saslprops: " + saslProperties);
+                    logger.log(Level.INFO, "subject: " + loginContext.getSubject());
+                    credential =
+                            credential
+                                    .withMechanismProperty(
+                                            MongoCredential.CANONICALIZE_HOST_NAME_KEY, true)
+                                    .withMechanismProperty(
+                                            MongoCredential.JAVA_SASL_CLIENT_PROPERTIES_KEY,
+                                            saslProperties)
+                                    .withMechanismProperty(
+                                            MongoCredential.JAVA_SUBJECT_KEY,
+                                            loginContext.getSubject());
+                } catch (LoginException e) {
+                    logger.log(Level.SEVERE, "Failed to get subject", e);
+                }
+                System.out.println(
+                        "Login config path: "
+                                + System.getProperty("java.security.auth.login.config"));
+                settingsBuilder.credential(credential);
+            } else if (authMechanism != null && authMechanism.equals(MONGODB_OIDC)) {
                 // Handle OIDC authentication
                 OidcCallback oidcCallback = new JdbcOidcCallback(this.logger);
                 credential =
@@ -200,13 +268,8 @@ public class MongoConnection implements Connection {
                     throw new IllegalStateException(
                             "PEM file path is required for X.509 authentication but was not provided.");
                 }
-
-                X509Authentication x509Authentication = new X509Authentication(logger);
-                x509Authentication.configureX509Authentication(
-                        settingsBuilder, pemPath, this.x509Passphrase);
             }
         }
-
         return settingsBuilder.build();
     }
 
