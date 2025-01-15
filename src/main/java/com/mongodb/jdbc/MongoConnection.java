@@ -207,13 +207,7 @@ public class MongoConnection implements Connection {
         if (credential != null) {
             AuthenticationMechanism authMechanism = credential.getAuthenticationMechanism();
 
-            // See where Tableau is getting config file jaas
-            System.out.println(
-                    "Login config path: " + System.getProperty("java.security.auth.login.config"));
-
             if (authMechanism != null && authMechanism.equals(AuthenticationMechanism.GSSAPI)) {
-                logger.log(Level.INFO, "in gssapi");
-
                 Map<String, Object> saslProperties = new HashMap<>();
                 saslProperties.put(javax.security.sasl.Sasl.MAX_BUFFER, "0");
                 saslProperties.put(javax.security.sasl.Sasl.SERVER_AUTH, "true");
@@ -227,12 +221,10 @@ public class MongoConnection implements Connection {
                         logger.log(Level.SEVERE, "Failed to get credentials from GSS context", e);
                     }
                 }
-
                 try {
-                    LoginContext loginContext = new LoginContext("com.sun.security.jgss.initiate");
+
+                    LoginContext loginContext = new LoginContext("com.sun.security.jgss.krb5.initiate");
                     loginContext.login();
-                    logger.log(Level.INFO, "saslprops: " + saslProperties);
-                    logger.log(Level.INFO, "subject: " + loginContext.getSubject());
                     credential =
                             credential
                                     .withMechanismProperty(
@@ -246,9 +238,6 @@ public class MongoConnection implements Connection {
                 } catch (LoginException e) {
                     logger.log(Level.SEVERE, "Failed to get subject", e);
                 }
-                System.out.println(
-                        "Login config path: "
-                                + System.getProperty("java.security.auth.login.config"));
                 settingsBuilder.credential(credential);
             } else if (authMechanism != null && authMechanism.equals(MONGODB_OIDC)) {
                 // Handle OIDC authentication
