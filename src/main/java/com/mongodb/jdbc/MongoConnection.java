@@ -209,18 +209,8 @@ public class MongoConnection implements Connection {
 
             if (authMechanism != null && authMechanism.equals(AuthenticationMechanism.GSSAPI)) {
                 Map<String, Object> saslProperties = new HashMap<>();
-                saslProperties.put(javax.security.sasl.Sasl.MAX_BUFFER, "0");
-                saslProperties.put(javax.security.sasl.Sasl.SERVER_AUTH, "true");
-                saslProperties.put(javax.security.sasl.Sasl.QOP, "auth");
-                if (this.gssContext != null) {
-                    try {
-                        saslProperties.put(
-                                javax.security.sasl.Sasl.CREDENTIALS,
-                                this.gssContext.getDelegCred());
-                    } catch (GSSException e) {
-                        logger.log(Level.SEVERE, "Failed to get credentials from GSS context", e);
-                    }
-                }
+                 saslProperties.put(javax.security.sasl.Sasl.SERVER_AUTH, "true");
+
                 try {
 
                     LoginContext loginContext = new LoginContext("com.sun.security.jgss.krb5.initiate");
