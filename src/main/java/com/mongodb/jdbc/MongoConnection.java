@@ -30,6 +30,7 @@ import com.mongodb.jdbc.logging.MongoSimpleFormatter;
 import com.mongodb.jdbc.mongosql.MongoSQLException;
 import com.mongodb.jdbc.mongosql.MongoSQLTranslate;
 import com.mongodb.jdbc.oidc.JdbcOidcCallback;
+import com.mongodb.jdbc.utils.X509Authentication;
 import java.io.File;
 import java.io.IOException;
 import java.sql.*;
@@ -209,11 +210,12 @@ public class MongoConnection implements Connection {
 
             if (authMechanism != null && authMechanism.equals(AuthenticationMechanism.GSSAPI)) {
                 Map<String, Object> saslProperties = new HashMap<>();
-                 saslProperties.put(javax.security.sasl.Sasl.SERVER_AUTH, "true");
+                saslProperties.put(javax.security.sasl.Sasl.SERVER_AUTH, "true");
 
                 try {
 
-                    LoginContext loginContext = new LoginContext("com.sun.security.jgss.krb5.initiate");
+                    LoginContext loginContext =
+                            new LoginContext("com.sun.security.jgss.krb5.initiate");
                     loginContext.login();
                     credential =
                             credential
@@ -247,8 +249,13 @@ public class MongoConnection implements Connection {
                     throw new IllegalStateException(
                             "PEM file path is required for X.509 authentication but was not provided.");
                 }
+
+                X509Authentication x509Authentication = new X509Authentication(logger);
+                x509Authentication.configureX509Authentication(
+                        settingsBuilder, pemPath, this.x509Passphrase);
             }
         }
+
         return settingsBuilder.build();
     }
 
