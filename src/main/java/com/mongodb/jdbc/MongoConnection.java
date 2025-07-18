@@ -193,17 +193,26 @@ public class MongoConnection implements Connection {
                 settingsBuilder.credential(credential);
             } else if (authMechanism != null && authMechanism.equals(MONGODB_X509)) {
                 String pemPath = connectionProperties.getX509PemPath();
+                String pemContent = null;
+                
                 if (pemPath == null || pemPath.isEmpty()) {
                     pemPath = System.getenv(MONGODB_JDBC_X509_CLIENT_CERT_PATH);
                 }
-                if (pemPath == null || pemPath.isEmpty()) {
+                
+                if ((pemPath == null || pemPath.isEmpty()) && this.x509Passphrase != null && this.x509Passphrase.length > 0) {
+                    pemContent = String.valueOf(this.x509Passphrase);
+                    this.x509Passphrase = null;
+                    logger.log(Level.FINE, "Using password as PEM content for X.509 authentication");
+                }
+                
+                if ((pemPath == null || pemPath.isEmpty()) && (pemContent == null || pemContent.isEmpty())) {
                     throw new IllegalStateException(
-                            "PEM file path is required for X.509 authentication but was not provided.");
+                            "PEM file path or PEM content is required for X.509 authentication but neither was provided.");
                 }
 
                 X509Authentication x509Authentication = new X509Authentication(logger);
                 x509Authentication.configureX509Authentication(
-                        settingsBuilder, pemPath, this.x509Passphrase);
+                        settingsBuilder, pemPath, pemContent, this.x509Passphrase);
             }
         }
 

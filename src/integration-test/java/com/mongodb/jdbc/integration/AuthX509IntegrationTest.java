@@ -164,4 +164,36 @@ public class AuthX509IntegrationTest {
             connection.getMetaData().getDriverVersion();
         }
     }
+
+    /**
+     * Tests that when x509PemPath property is NOT set but password IS set, 
+     * the password is used as the PEM contents directly
+     */
+    @Test
+    public void testPasswordAsPemContent() throws SQLException {
+        String mongoPort = System.getenv(LOCAL_PORT_ENV_VAR);
+        assertNotNull(mongoPort, "Environment variable " + LOCAL_PORT_ENV_VAR + " must be set");
+
+        String pemContent;
+        try {
+            pemContent = java.nio.file.Files.readString(
+                java.nio.file.Paths.get("resources/authentication_test/X509/client-unencrypted.pem"));
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to read PEM file for test", e);
+        }
+
+        String uri =
+                "jdbc:mongodb://localhost:"
+                        + mongoPort
+                        + "/?authSource=$external&authMechanism=MONGODB-X509&tls=true";
+
+        Properties properties = new Properties();
+        properties.setProperty("database", "test");
+        properties.setProperty("password", pemContent);
+
+        try (Connection connection = DriverManager.getConnection(uri, properties)) {
+            assertNotNull(connection, "Connection using password as PEM content should succeed");
+            connection.getMetaData().getDriverVersion();
+        }
+    }
 }

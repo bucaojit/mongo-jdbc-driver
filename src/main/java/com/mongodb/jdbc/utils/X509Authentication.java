@@ -18,6 +18,7 @@ package com.mongodb.jdbc.utils;
 
 import com.mongodb.jdbc.logging.MongoLogger;
 import java.io.FileReader;
+import java.io.StringReader;
 import java.security.*;
 import java.security.cert.Certificate;
 import java.util.logging.Level;
@@ -43,22 +44,42 @@ public class X509Authentication {
     public void configureX509Authentication(
             com.mongodb.MongoClientSettings.Builder settingsBuilder,
             String pemPath,
+            String pemContent,
             char[] passphrase) {
 
-        logger.log(Level.FINE, "Using client certificate for X509 authentication: " + pemPath);
-        if (passphrase != null && passphrase.length > 0) {
-            logger.log(Level.FINE, "Client certificate passphrase has been specified");
-        }
-        try {
-            SSLContext sslContext = createSSLContext(pemPath, passphrase);
-
-            settingsBuilder.applyToSslSettings(
-                    sslSettings -> {
-                        sslSettings.enabled(true);
-                        sslSettings.context(sslContext);
-                    });
-        } catch (Exception e) {
-            throw new RuntimeException("SSL setup failed", e);
+        if (pemContent != null && !pemContent.isEmpty()) {
+            logger.log(Level.FINE, "Using client certificate content for X509 authentication");
+            if (passphrase != null && passphrase.length > 0) {
+                logger.log(Level.FINE, "Client certificate passphrase has been specified");
+            }
+            try {
+                SSLContext sslContext = createSSLContextFromPemContent(pemContent, passphrase);
+                settingsBuilder.applyToSslSettings(
+                        sslSettings -> {
+                            sslSettings.enabled(true);
+                            sslSettings.context(sslContext);
+                        });
+            } catch (Exception e) {
+                throw new RuntimeException("SSL setup failed with PEM content", e);
+            }
+        } else if (pemPath != null && !pemPath.isEmpty()) {
+            logger.log(Level.FINE, "Using client certificate for X509 authentication: " + pemPath);
+            if (passphrase != null && passphrase.length > 0) {
+                logger.log(Level.FINE, "Client certificate passphrase has been specified");
+            }
+            try {
+                SSLContext sslContext = createSSLContext(pemPath, passphrase);
+                settingsBuilder.applyToSslSettings(
+                        sslSettings -> {
+                            sslSettings.enabled(true);
+                            sslSettings.context(sslContext);
+                        });
+            } catch (Exception e) {
+                throw new RuntimeException("SSL setup failed", e);
+            }
+        } else {
+            throw new IllegalStateException(
+                    "Either PEM file path or PEM content is required for X.509 authentication but neither was provided.");
         }
     }
 
@@ -112,6 +133,58 @@ public class X509Authentication {
         }
         if (cert == null) {
             throw new IllegalStateException("Failed to read certificate from PEM file");
+        }
+
+        return createSSLContextFromKeyAndCert(privateKey, cert);
+    }
+
+    private SSLContext createSSLContextFromPemContent(String pemContent, char[] passphrase) throws Exception {
+        PrivateKey privateKey = null;
+        Certificate cert = null;
+
+        try (PEMParser pemParser = new PEMParser(new StringReader(pemContent))) {
+            Object pemObj;
+
+            while ((pemObj = pemParser.readObject()) != null) {
+                try {
+                    if (passphrase != null
+                            && passphrase.length > 0
+                            && pemObj instanceof PKCS8EncryptedPrivateKeyInfo) {
+                        privateKey =
+                                new JcaPEMKeyConverter()
+                                        .setProvider(BC_PROVIDER)
+                                        .getPrivateKey(
+                                                ((PKCS8EncryptedPrivateKeyInfo) pemObj)
+                                                        .decryptPrivateKeyInfo(
+                                                                new JcePKCSPBEInputDecryptorProviderBuilder()
+                                                                        .setProvider(BC_PROVIDER)
+                                                                        .build(passphrase)));
+                    } else if (pemObj instanceof PrivateKeyInfo) {
+                        privateKey =
+                                new JcaPEMKeyConverter()
+                                        .setProvider(BC_PROVIDER)
+                                        .getPrivateKey((PrivateKeyInfo) pemObj);
+                    }
+                } catch (Exception e) {
+                    throw new GeneralSecurityException(
+                            "Failed to process private key from PEM content", e);
+                }
+
+                if (pemObj instanceof X509CertificateHolder) {
+                    cert =
+                            new JcaX509CertificateConverter()
+                                    .setProvider(BC_PROVIDER)
+                                    .getCertificate((X509CertificateHolder) pemObj);
+                }
+            }
+        }
+
+        if (privateKey == null) {
+            throw new IllegalStateException(
+                    "Failed to read private key from PEM content (encrypted or unencrypted)");
+        }
+        if (cert == null) {
+            throw new IllegalStateException("Failed to read certificate from PEM content");
         }
 
         return createSSLContextFromKeyAndCert(privateKey, cert);
