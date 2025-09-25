@@ -49,6 +49,9 @@ import java.util.logging.*;
 import org.bson.BsonDocument;
 import org.bson.BsonInt32;
 import org.bson.UuidRepresentation;
+import javax.security.auth.login.LoginContext;
+import javax.security.auth.login.LoginException;
+import org.ietf.jgss.*;
 
 @AutoLoggable
 public class MongoConnection implements Connection {
@@ -76,6 +79,7 @@ public class MongoConnection implements Connection {
     private int serverMajorVersion;
     private int serverMinorVersion;
     private String serverVersion;
+    private GSSContext gssContext;
 
     public static final String MONGODB_JDBC_X509_CLIENT_CERT_PATH =
             "MONGODB_JDBC_X509_CLIENT_CERT_PATH";
@@ -184,8 +188,31 @@ public class MongoConnection implements Connection {
         if (credential != null) {
             AuthenticationMechanism authMechanism = credential.getAuthenticationMechanism();
 
-            if (authMechanism != null && authMechanism.equals(MONGODB_OIDC)) {
-                // Handle OIDC authentication
+            if (authMechanism != null && authMechanism.equals(AuthenticationMechanism.GSSAPI)) {
+                System.setProperty("java.security.auth.login.config", "/Users/oliver.bucaojit/Code/Deployments/kerberos-env/jaas.conf");
+                Map<String, Object> saslProperties = new HashMap<>();
+                saslProperties.put(javax.security.sasl.Sasl.SERVER_AUTH, "true");
+
+                try {
+
+                    LoginContext loginContext =
+                            new LoginContext("com.sun.security.jgss.krb5.initiate");
+                    loginContext.login();
+                    credential =
+                            credential
+                                    .withMechanismProperty(
+                                            MongoCredential.CANONICALIZE_HOST_NAME_KEY, true)
+                                    .withMechanismProperty(
+                                            MongoCredential.JAVA_SASL_CLIENT_PROPERTIES_KEY,
+                                            saslProperties)
+                                    .withMechanismProperty(
+                                            MongoCredential.JAVA_SUBJECT_KEY,
+                                            loginContext.getSubject());
+                } catch (LoginException e) {
+                    logger.log(Level.SEVERE, "Failed to get subject", e);
+                }
+                settingsBuilder.credential(credential);
+            } else if (authMechanism != null && authMechanism.equals(MONGODB_OIDC)) {                // Handle OIDC authentication
                 OidcCallback oidcCallback = new JdbcOidcCallback(this.logger);
                 credential =
                         MongoCredential.createOidcCredential(
