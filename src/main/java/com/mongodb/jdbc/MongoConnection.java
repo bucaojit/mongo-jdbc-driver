@@ -189,7 +189,7 @@ public class MongoConnection implements Connection {
             AuthenticationMechanism authMechanism = credential.getAuthenticationMechanism();
 
             if (authMechanism != null && authMechanism.equals(AuthenticationMechanism.GSSAPI)) {
-                System.setProperty("java.security.auth.login.config", "/Users/oliver.bucaojit/Code/Deployments/kerberos-env/jaas.conf");
+                System.setProperty("java.security.auth.login.config", "/opt/mongodb/jaas.conf");
                 Map<String, Object> saslProperties = new HashMap<>();
                 saslProperties.put(javax.security.sasl.Sasl.SERVER_AUTH, "true");
 
